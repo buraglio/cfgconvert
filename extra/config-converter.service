@@ -1,0 +1,13 @@
+[Unit]
+Description=Network Config Converter
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/cfgconvert/cfgconvert.py -d
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+

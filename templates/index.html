@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multi-Vendor Config Converter</title>
+    <style>
+        .download-buttons { margin-top: 20px; }
+        button { margin-right: 10px; padding: 8px 15px; }
+        .os-badge {
+            background-color: #4CAF50;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+        .supported-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .vendor-chip {
+            background: #e0e0e0;
+            padding: 3px 8px;
+            border-radius: 16px;
+            font-size: 0.8em;
+        }
+    </style>
+</head>
+<body>
+    <h1>Multi-Vendor Network Config Converter</h1>
+
+    <div class="supported-list">
+        <span class="vendor-chip">Cisco IOS</span>
+        <span class="vendor-chip">Cisco IOS-XR</span>
+        <span class="vendor-chip">Juniper JunOS</span>
+        <span class="vendor-chip">Mikrotik RouterOS</span>
+        <span class="vendor-chip">Nokia SR OS</span>
+        <span class="vendor-chip">Arista EOS</span>
+    </div>
+
+    {% if error %}
+        <p style="color: red;">{{ error }}</p>
+    {% endif %}
+
+    <form method="POST">
+        <textarea name="config" rows="20" cols="80" placeholder="Paste network configuration here...">{{ config if config }}</textarea><br>
+        <button type="submit">Convert Configuration</button>
+    </form>
+
+    {% if show_downloads %}
+        <div class="download-buttons">
+            <p>Detected OS: <span class="os-badge">{{ os_type }}</span></p>
+            <p>Download converted files:</p>
+            <a href="/download/jinja"><button>Jinja2 Template</button></a>
+            <a href="/download/xml"><button>XML File</button></a>
+            <a href="/download/json"><button>JSON File</button></a>
+            <a href="/download/zip"><button>All Files (ZIP)</button></a>
+        </div>
+    {% endif %}
+</body>
+</html>
+
