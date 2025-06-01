@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# 1.0 Rework this to remove the web junk because it's overly complicated. 
+# Tear out the auto-detect code and create flags for each configuration type. 
+# This is crude 
 import os
 import sys
 import re
@@ -6,7 +9,6 @@ import argparse
 import logging
 from xml.etree import ElementTree as ET
 import json
-from io import BytesIO
 
 # Configure logging
 logging.basicConfig(
@@ -19,20 +21,78 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def detect_os(config):
-    """Enhanced OS detection with better pattern matching"""
-    if re.search(r'^!!\s+TiMOS-', config, re.MULTILINE):
-        return 'sros'
-    elif re.search(r'^## Last commit:', config, re.MULTILINE) or 'version junos' in config.lower():
-        return 'junos'
-    elif re.search(r'^!Command:.*IOS-XR', config, re.MULTILINE):
-        return 'iosxr'
-    elif 'hostname' in config.lower() or 'interface' in config.lower():
-        return 'ios'
-    return 'unknown'
+def ios_to_jinja2(config):
+    """Convert Cisco IOS config to Jinja2 template"""
+    jinja_config = []
+    for line in config.splitlines():
+        if line.strip().startswith('!'):
+            jinja_config.append(line)
+            continue
+
+        # Handle hostname replacement
+        if line.strip().startswith('hostname'):
+            jinja_config.append(re.sub(r'hostname (\S+)', 'hostname {{ hostname }}', line))
+            continue
+
+        # Handle interface blocks
+        if line.strip().startswith('interface'):
+            intf_match = re.match(r'(interface\s+)(\S+)', line)
+            if intf_match:
+                jinja_config.append("{} {{ {} }}".format(
+                    intf_match.group(1),
+                    intf_match.group(2).strip('"').replace('-', '_')
+                ))
+                continue
+
+        # Handle IP addresses
+        if 'ip address' in line:
+            ip_match = re.match(r'(\s*ip\s+address\s+)(\S+)\s+(\S+)', line)
+            if ip_match:
+                jinja_config.append("{} {{ ip_address }} {{ subnet_mask }}".format(
+                    ip_match.group(1)
+                ))
+                continue
+
+        # Preserve all other lines as-is
+        jinja_config.append(line)
+
+    return '\n'.join(jinja_config)
+
+def iosxr_to_jinja2(config):
+    """Convert IOS-XR config to Jinja2 template"""
+    jinja_config = []
+    for line in config.splitlines():
+        if line.strip().startswith('!'):
+            jinja_config.append(line)
+            continue
+
+        if line.strip().startswith('hostname'):
+            jinja_config.append(re.sub(r'hostname (\S+)', 'hostname {{ hostname }}', line))
+            continue
+
+        if line.strip().startswith('interface'):
+            intf_match = re.match(r'(interface\s+)(\S+)', line)
+            if intf_match:
+                jinja_config.append("{} {{ {} }}".format(
+                    intf_match.group(1),
+                    intf_match.group(2).strip('"').replace('-', '_')
+                ))
+                continue
+
+        if 'ipv4 address' in line:
+            ip_match = re.match(r'(\s*ipv4\s+address\s+)(\S+)\s+(\S+)', line)
+            if ip_match:
+                jinja_config.append("{} {{ ip_address }} {{ subnet_mask }}".format(
+                    ip_match.group(1)
+                ))
+                continue
+
+        jinja_config.append(line)
+
+    return '\n'.join(jinja_config)
 
 def junos_to_jinja2(config):
-    """Proper JunOS to Jinja2 conversion with hierarchical support"""
+    """Convert JunOS config to Jinja2 template"""
     jinja_config = []
     current_path = []
 
@@ -51,9 +111,6 @@ def junos_to_jinja2(config):
             path_parts = []
             i = 0
             while i < len(parts):
-                if parts[i] == 'set':
-                    i += 1
-                    continue
                 path_parts.append(parts[i])
                 i += 1
 
@@ -73,44 +130,111 @@ def junos_to_jinja2(config):
 
     return '\n'.join(jinja_config)
 
-def sros_to_jinja2(config):
-    """Proper SROS to Jinja2 conversion with quoted strings"""
+def eos_to_jinja2(config):
+    """Convert Arista EOS config to Jinja2 template"""
     jinja_config = []
-    in_interface = False
-
     for line in config.splitlines():
-        line = line.strip()
-        if not line:
+        if line.strip().startswith('!'):
             jinja_config.append(line)
             continue
 
-        # Handle system name
-        if line.startswith('configure system name'):
-            jinja_config.append('configure system name "{{ system_name }}"')
+        if line.strip().startswith('hostname'):
+            jinja_config.append(re.sub(r'hostname (\S+)', 'hostname {{ hostname }}', line))
             continue
 
-        # Handle interfaces
-        if line.startswith('configure interface'):
-            match = re.match(r'configure interface "([^"]+)"', line)
-            if match:
-                intf_name = match.group(1).replace('-', '_')
-                jinja_config.append(f'configure interface "{{{{ {intf_name} }}}}"')
-                in_interface = True
+        if line.strip().startswith('interface'):
+            intf_match = re.match(r'(interface\s+)(\S+)', line)
+            if intf_match:
+                jinja_config.append("{} {{ {} }}".format(
+                    intf_match.group(1),
+                    intf_match.group(2).strip('"').replace('-', '_')
+                ))
                 continue
 
-        # Handle IP addresses
-        if in_interface and 'address' in line:
-            match = re.match(r'address (\S+)', line)
-            if match:
-                jinja_config.append('address {{ ip_address }}')
+        if 'ip address' in line:
+            ip_match = re.match(r'(\s*ip\s+address\s+)(\S+)\s+(\S+)', line)
+            if ip_match:
+                jinja_config.append("{} {{ ip_address }} {{ subnet_mask }}".format(
+                    ip_match.group(1)
+                ))
                 continue
 
         jinja_config.append(line)
 
     return '\n'.join(jinja_config)
 
+def mikrotik_to_jinja2(config):
+    """Convert Mikrotik config to Jinja2 template"""
+    jinja_config = []
+    for line in config.splitlines():
+        if line.strip().startswith('#'):
+            jinja_config.append(line)
+            continue
+
+        # Handle interface names
+        if '/interface' in line and 'add name=' in line:
+            match = re.search(r'add name=([^\s]+)', line)
+            if match:
+                jinja_config.append(line.replace(match.group(1), f"{{{{ {match.group(1).replace('-', '_')} }}}}"))
+                continue
+
+        # Handle IP addresses
+        if 'add address=' in line:
+            match = re.search(r'add address=([^\s]+)', line)
+            if match:
+                jinja_config.append(line.replace(match.group(1), "{{ ip_address }}"))
+                continue
+
+        jinja_config.append(line)
+
+    return '\n'.join(jinja_config)
+
+def ios_to_xml(config):
+    """Convert IOS config to XML"""
+    root = ET.Element("ios_configuration")
+
+    # Extract hostname
+    hostname = re.search(r'hostname (\S+)', config)
+    if hostname:
+        ET.SubElement(root, "hostname").text = hostname.group(1)
+
+    # Extract interfaces
+    interfaces = ET.SubElement(root, "interfaces")
+    for intf in re.finditer(r'interface (\S+)\n(.*?)(?=\ninterface|\Z)', config, re.DOTALL):
+        intf_elem = ET.SubElement(interfaces, "interface")
+        ET.SubElement(intf_elem, "name").text = intf.group(1)
+
+        ip_match = re.search(r'ip address (\S+) (\S+)', intf.group(2))
+        if ip_match:
+            ET.SubElement(intf_elem, "ip_address").text = ip_match.group(1)
+            ET.SubElement(intf_elem, "subnet_mask").text = ip_match.group(2)
+
+    return ET.tostring(root, encoding='utf-8', method='xml').decode('utf-8')
+
+def iosxr_to_xml(config):
+    """Convert IOS-XR config to XML"""
+    root = ET.Element("iosxr_configuration")
+
+    # Extract hostname
+    hostname = re.search(r'hostname (\S+)', config)
+    if hostname:
+        ET.SubElement(root, "hostname").text = hostname.group(1)
+
+    # Extract interfaces
+    interfaces = ET.SubElement(root, "interfaces")
+    for intf in re.finditer(r'interface (\S+)\n(.*?)(?=\ninterface|\Z)', config, re.DOTALL):
+        intf_elem = ET.SubElement(interfaces, "interface")
+        ET.SubElement(intf_elem, "name").text = intf.group(1)
+
+        ip_match = re.search(r'ipv4 address (\S+) (\S+)', intf.group(2))
+        if ip_match:
+            ET.SubElement(intf_elem, "ip_address").text = ip_match.group(1)
+            ET.SubElement(intf_elem, "subnet_mask").text = ip_match.group(2)
+
+    return ET.tostring(root, encoding='utf-8', method='xml').decode('utf-8')
+
 def junos_to_xml(config):
-    """Proper JunOS to XML conversion with hierarchy"""
+    """Convert JunOS config to XML"""
     root = ET.Element("junos_configuration")
 
     # Extract system info
@@ -139,39 +263,53 @@ def junos_to_xml(config):
 
     return ET.tostring(root, encoding='utf-8', method='xml').decode('utf-8')
 
-def sros_to_xml(config):
-    """Proper SROS to XML conversion with quoted strings"""
-    root = ET.Element("sros_configuration")
+def eos_to_xml(config):
+    """Convert Arista EOS config to XML"""
+    root = ET.Element("eos_configuration")
 
-    # Extract system info
-    system = ET.SubElement(root, "system")
-    name = re.search(r'configure system name "([^"]+)"', config)
-    if name:
-        ET.SubElement(system, "name").text = name.group(1)
+    # Extract hostname
+    hostname = re.search(r'hostname (\S+)', config)
+    if hostname:
+        ET.SubElement(root, "hostname").text = hostname.group(1)
 
     # Extract interfaces
     interfaces = ET.SubElement(root, "interfaces")
-    for intf in re.finditer(r'configure interface "([^"]+)"', config):
+    for intf in re.finditer(r'interface (\S+)\n(.*?)(?=\ninterface|\Z)', config, re.DOTALL):
         intf_elem = ET.SubElement(interfaces, "interface")
         ET.SubElement(intf_elem, "name").text = intf.group(1)
 
-        # Find IP address
-        ip_match = re.search(
-            r'configure router interface "{}"\s+address (\S+)'.format(
-                re.escape(intf.group(1))
-            ), 
-            config
-        )
+        ip_match = re.search(r'ip address (\S+) (\S+)', intf.group(2))
         if ip_match:
             ET.SubElement(intf_elem, "ip_address").text = ip_match.group(1)
+            ET.SubElement(intf_elem, "subnet_mask").text = ip_match.group(2)
+
+    return ET.tostring(root, encoding='utf-8', method='xml').decode('utf-8')
+
+def mikrotik_to_xml(config):
+    """Convert Mikrotik config to XML"""
+    root = ET.Element("mikrotik_configuration")
+
+    # Extract interfaces
+    interfaces = ET.SubElement(root, "interfaces")
+    for intf in re.finditer(r'/interface\nadd name=([^\s]+)', config):
+        intf_elem = ET.SubElement(interfaces, "interface")
+        ET.SubElement(intf_elem, "name").text = intf.group(1)
+
+    # Extract IP addresses
+    addresses = ET.SubElement(root, "addresses")
+    for addr in re.finditer(r'add address=([^\s]+)', config):
+        addr_elem = ET.SubElement(addresses, "address")
+        addr_elem.text = addr.group(1)
 
     return ET.tostring(root, encoding='utf-8', method='xml').decode('utf-8')
 
 def parse_arguments():
-    """Parse command line arguments"""
+    """Parse command line arguments with OS-specific flags"""
     parser = argparse.ArgumentParser(
         description='Network Config Converter Tool'
     )
+
+    # Required arguments
     parser.add_argument('-f', '--file', required=True,
                       help='Input configuration file')
     parser.add_argument('-o', '--output', required=True,
@@ -179,6 +317,20 @@ def parse_arguments():
     parser.add_argument('-t', '--type', required=True,
                       choices=['jinja2', 'xml', 'json'],
                       help='Output format type')
+
+    # OS selection flags (mutually exclusive)
+    os_group = parser.add_mutually_exclusive_group(required=True)
+    os_group.add_argument('-c', '--cisco', action='store_true',
+                        help='Cisco IOS configuration')
+    os_group.add_argument('-x', '--iosxr', action='store_true',
+                        help='Cisco IOS-XR configuration')
+    os_group.add_argument('-j', '--junos', action='store_true',
+                        help='Juniper JunOS configuration')
+    os_group.add_argument('-a', '--arista', action='store_true',
+                        help='Arista EOS configuration')
+    os_group.add_argument('-m', '--mikrotik', action='store_true',
+                        help='Mikrotik RouterOS configuration')
+
     return parser.parse_args()
 
 def main():
@@ -188,30 +340,43 @@ def main():
         with open(args.file, 'r') as f:
             config = f.read()
 
-        os_type = detect_os(config)
-        logger.info(f"Detected OS type: {os_type}")
-
-        if args.type == 'jinja2':
-            if os_type == 'junos':
+        # Determine conversion functions based on OS and type
+        if args.cisco:
+            if args.type == 'jinja2':
+                converted = ios_to_jinja2(config)
+            elif args.type == 'xml':
+                converted = ios_to_xml(config)
+        elif args.iosxr:
+            if args.type == 'jinja2':
+                converted = iosxr_to_jinja2(config)
+            elif args.type == 'xml':
+                converted = iosxr_to_xml(config)
+        elif args.junos:
+            if args.type == 'jinja2':
                 converted = junos_to_jinja2(config)
-            elif os_type == 'sros':
-                converted = sros_to_jinja2(config)
-            else:
-                raise ValueError(f"Unsupported OS type for Jinja2: {os_type}")
-        elif args.type == 'xml':
-            if os_type == 'junos':
+            elif args.type == 'xml':
                 converted = junos_to_xml(config)
-            elif os_type == 'sros':
-                converted = sros_to_xml(config)
-            else:
-                raise ValueError(f"Unsupported OS type for XML: {os_type}")
-        elif args.type == 'json':
+        elif args.arista:
+            if args.type == 'jinja2':
+                converted = eos_to_jinja2(config)
+            elif args.type == 'xml':
+                converted = eos_to_xml(config)
+        elif args.mikrotik:
+            if args.type == 'jinja2':
+                converted = mikrotik_to_jinja2(config)
+            elif args.type == 'xml':
+                converted = mikrotik_to_xml(config)
+
+        if args.type == 'json':
+            os_type = 'ios' if args.cisco else \
+                     'iosxr' if args.iosxr else \
+                     'junos' if args.junos else \
+                     'eos' if args.arista else \
+                     'mikrotik'
             converted = json.dumps({
                 "os_type": os_type,
                 "config": config.splitlines()
             }, indent=2)
-        else:
-            raise ValueError(f"Unsupported output format: {args.type}")
 
         with open(args.output, 'w') as f:
             f.write(converted)
