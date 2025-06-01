@@ -1,0 +1,9 @@
+! Cisco IOS XE Software, Version 17.06.01
+hostname {{ hostname }}
+!
+interface { GigabitEthernet0_0 }
+ ip address {{ ip_address }} {{ subnet_mask }}
+ no shutdown
+!
+router ospf 1
+ network 10.1.1.0 0.0.0.255 area 0

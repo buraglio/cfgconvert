@@ -1,0 +1,13 @@
+{
+  "os_type": "eos",
+  "config": [
+    "! device: AristaDCS-7050SX (DCS-7050SX-64, EOS-4.25.2F)",
+    "hostname ARISTA1",
+    "!",
+    "interface Ethernet1",
+    "   ip address 10.3.3.1/24",
+    "   no shutdown",
+    "!",
+    "ip routing"
+  ]
+}

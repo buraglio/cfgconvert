@@ -1,0 +1,20 @@
+{
+  "os_type": "sros",
+  "config": [
+    "!! TiMOS-B-21.2.R1 both/x86_64 Nokia 7750 SR Copyright (c) 2000-2025 Nokia.",
+    "configure {",
+    "    system {",
+    "        name \"SR-7750\";",
+    "        location \"DataCenter A\";",
+    "    }",
+    "    interface \"1/1/1\" {",
+    "        admin-state enable",
+    "    }",
+    "    router \"Base\" {",
+    "        interface \"system\" {",
+    "            address 192.168.1.1/24",
+    "        }",
+    "    }",
+    "}"
+  ]
+}
