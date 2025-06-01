@@ -1,1 +1,0 @@
-<network_configuration><os_type>ios</os_type><hostname>ROUTER1</hostname><interfaces><interface><name>GigabitEthernet0/0</name><ip_address>192.168.1.1</ip_address><subnet_mask>255.255.255.0</subnet_mask></interface></interfaces></network_configuration>
